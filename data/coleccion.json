@@ -1,0 +1,16 @@
+[
+  {
+    "titulo": "Abbey Road",
+    "artista": "The Beatles",
+    "anio": 1969,
+    "genero": "Rock",
+    "formato": "Vinilo"
+  },
+  {
+    "titulo": "Thriller",
+    "artista": "Michael Jackson",
+    "anio": 1982,
+    "genero": "Pop",
+    "formato": "CD"
+  }
+]

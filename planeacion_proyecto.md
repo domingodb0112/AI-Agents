@@ -1,31 +1,38 @@
-# Planeación del Proyecto: Sistema de Recomendación de Música Física con Agentes de IA
+# Planeación del Proyecto: Sistema de Recomendación de Música Física con Agentes de IA y Arquitectura MVC
 
-Este documento detalla la planeación y arquitectura para el proyecto de Inteligencia Artificial en **Java**. El sistema conecta dos computadoras mediante sockets y utiliza un sistema multiagente (3 agentes) para gestionar, buscar y recomendar discos físicos (CDs y vinilos).
+Este documento detalla la planeación y arquitectura para el proyecto de Inteligencia Artificial en **Java**. El sistema conecta dos computadoras mediante sockets, implementa una arquitectura **Modelo-Vista-Controlador (MVC)** distribuida y utiliza un sistema multiagente (3 agentes) para gestionar, buscar y recomendar discos físicos (CDs y vinilos).
 
 ---
 
-## 1. Arquitectura General del Sistema
+## 1. Arquitectura General y Patrón MVC
 
-El sistema utiliza una arquitectura **Cliente-Servidor** mediante sockets TCP/IP estándar de Java. Esto garantiza una conexión orientada a conexión, confiable y bidireccional.
+Para mantener el código ordenado y escalable, implementamos el patrón **MVC (Model-View-Controller)** tanto en el lado del cliente como en el del servidor. La separación de responsabilidades se distribuye de la siguiente manera:
 
 ```mermaid
 graph TD
-    Client["Cliente (PC 1: Interfaz de Usuario)"] <-->|Sockets TCP/IP| Server["Servidor (PC 2: Motor de IA)"]
-    
-    subgraph Servidor ["Servidor (PC 2)"]
-        SocketHandler["Manejador de Sockets"]
-        DB[("Almacenamiento (JSON/DB)")]
+    subgraph Cliente ["Cliente (PC 1 - Interfaz)"]
+        View["Vista (GUI Swing/JavaFX o Consola)"] <-->|Interacciones / Actualizaciones| ClientController["Controlador del Cliente"]
+        ClientController <-->|Modifica/Consulta| ClientModel["Modelos Locales (Datos temporales / Estado)"]
+    end
+
+    subgraph Red ["Red"]
+        ClientController <-->|Sockets TCP/IP (JSON)| ServerController["Controlador del Servidor"]
+    end
+
+    subgraph Servidor ["Servidor (PC 2 - Motor de IA)"]
+        ServerController <-->|Orquesta y Consulta| ServerModel["Modelos del Servidor (Lógica de Negocio y BD)"]
         
-        subgraph SistemaMultiagente ["Sistema Multiagente (IA)"]
-            A1["Agente 1: Analizador de Colección"]
-            A2["Agente 2: Buscador y Consultor"]
-            A3["Agente 3: Recomendador de Música"]
+        subgraph ServerModel ["Modelos del Servidor"]
+            DB[("Almacenamiento (JSON/DB)")]
+            
+            subgraph SistemaMultiagente ["Sistema Multiagente (IA)"]
+                A1["Agente 1: Analizador de Colección"]
+                A2["Agente 2: Buscador y Consultor"]
+                A3["Agente 3: Recomendador de Música"]
+            end
         end
     end
 
-    SocketHandler <--> A1
-    SocketHandler <--> A2
-    SocketHandler <--> A3
     A1 <--> DB
     A2 <--> DB
     A3 <--> A1
@@ -34,60 +41,159 @@ graph TD
 
 ---
 
-## 2. Definición de los Agentes de IA (3 Agentes)
+## 2. Componentes del Patrón MVC
 
-Para cumplir con el requerimiento de forma eficiente y enfocada en IA, se proponen exactamente 3 agentes con responsabilidades delimitadas y cooperativas:
+### Lado del Cliente (PC 1)
+*   **Vista (View):** 
+    *   Interfaz gráfica (Swing o JavaFX) o de consola donde el usuario registra sus discos, realiza búsquedas y solicita recomendaciones.
+    *   No tiene lógica de negocio ni maneja sockets directamente; solo reporta eventos al controlador.
+*   **Controlador (ClientController):**
+    *   Escucha los eventos de la Vista (ej. clic en "Buscar álbum" o "Registrar Vinilo").
+    *   Construye las tramas de datos JSON y las envía a través del socket al servidor.
+    *   Recibe las respuestas del servidor y actualiza la Vista.
+*   **Modelo (ClientModel):**
+    *   Representa los datos locales en memoria (lista actual de álbumes mostrados, estado de la conexión).
 
-### Agente 1: Analizador de Colección (Collection Analyzer Agent)
-*   **Propósito:** Procesar y estructurar la información de los discos físicos registrados por el usuario.
-*   **Tareas:**
-    *   Clasificar los discos por géneros, subgéneros, épocas (décadas) y niveles de rareza/formato (CD vs. Vinilo).
-    *   Crear un **perfil de gustos musicales** del usuario (matriz de pesos de géneros musicales basados en la frecuencia y peso de artistas en la colección).
-*   **Enfoque de IA:** Clasificación bayesiana simple o asignación de pesos heurísticos para determinar la afinidad del usuario.
-
-### Agente 2: Buscador y Consultor (Search & Query Agent)
-*   **Propósito:** Gestionar la búsqueda de nuevos álbumes y procesar las peticiones del usuario.
-*   **Tareas:**
-    *   Buscar álbumes en el catálogo disponible (simulado o mediante alguna API externa básica).
-    *   Interpretar la intención de búsqueda del usuario (búsquedas difusas, por artista, año o género).
-*   **Enfoque de IA:** Procesamiento de texto básico/búsqueda semántica simple o algoritmos de coincidencia difusa (Fuzzy Matching como distancia Levenshtein) para mejorar las consultas de búsqueda.
-
-### Agente 3: Recomendador de Música (Recommendation Agent)
-*   **Propósito:** Generar recomendaciones personalizadas cruzando los datos del Agente 1 y Agente 2.
-*   **Tareas:**
-    *   Tomar el perfil de gustos generado por el **Agente 1**.
-    *   Evaluar el historial de búsquedas del **Agente 2**.
-    *   Calcular la similitud entre los álbumes no poseídos y el perfil del usuario para sugerir nuevas adquisiciones.
-*   **Enfoque de IA:** Filtro basado en contenido (Content-Based Filtering) usando métricas de similitud (como la similitud de coseno en vectores de características de géneros/artistas).
+### Lado del Servidor (PC 2)
+*   **Controlador (ServerController):**
+    *   Contiene el hilo principal del Socket (`ServerSocketListener`) que escucha conexiones entrantes.
+    *   Recibe las tramas JSON del cliente, determina la acción solicitada (rutas/endpoints del socket) y delega la ejecución al **Modelo del Servidor** (Agentes).
+*   **Modelo (ServerModel / Agentes):**
+    *   Contiene la lógica de negocio y las capacidades cognitivas del sistema. Los **3 Agentes de IA** forman parte del modelo del servidor:
+        *   **Agente 1 (Analizador):** Modela el perfil del usuario analizando los géneros y frecuencias de los discos guardados.
+        *   **Agente 2 (Buscador):** Modela la lógica de consulta y coincidencia difusa en la base de datos de música.
+        *   **Agente 3 (Recomendador):** Aplica la lógica de filtrado colaborativo o similitud de coseno para generar nuevas recomendaciones.
+    *   Administra la lectura/escritura de la base de datos o almacenamiento físico (archivos JSON/texto).
 
 ---
 
-## 3. Protocolo de Comunicación (Sockets)
+## 3. Protocolo de Comunicación (Mensajería JSON)
 
-La comunicación se estructurará mediante mensajes serializados en formato JSON (usando bibliotecas como Gson o Jackson) para facilitar la interoperabilidad y legibilidad.
+La comunicación entre el **Controlador del Cliente** y el **Controlador del Servidor** se realiza serializando clases Java a JSON:
 
-### Estructura de Mensaje
 ```json
 {
   "transaccionId": "UUID-12345",
   "accion": "REGISTRAR_DISCO | BUSCAR_ALBUM | OBTENER_RECOMENDACIONES",
-  "datos": { ... },
-  "timestamp": 1717791600
+  "datos": {
+    "titulo": "The Dark Side of the Moon",
+    "artista": "Pink Floyd",
+    "anio": 1973,
+    "genero": "Progressive Rock",
+    "formato": "Vinilo"
+  }
 }
 ```
 
-### Flujos Principales:
-1.  **Registro de Disco:**
-    *   *Cliente* envía un JSON con los datos del nuevo vinilo/CD.
-    *   *Servidor* recibe, almacena, e invoca al **Agente 1** para actualizar el perfil del usuario.
-2.  **Solicitud de Recomendación:**
-    *   *Cliente* solicita recomendaciones.
-    *   *Servidor* invoca al **Agente 3**, el cual interactúa con el **Agente 1** (para ver qué posee) y el **Agente 2** (para ver qué ha buscado) y devuelve la lista recomendada.
+---
+
+## 4. Estructura de Paquetes en Java (Propuesta)
+
+```text
+uaemex.ia.proyecto
+│
+├── cliente
+│   ├── view
+│   │   └── VentanaPrincipal.java (Vista)
+│   ├── controller
+│   │   └── ClientController.java (Controlador Cliente / Socket)
+│   └── model
+│       └── DiscoLocal.java (Modelo Cliente)
+│
+├── servidor
+│   ├── controller
+│   │   └── ServerController.java (Controlador Servidor / SocketListener)
+│   └── model
+│       ├── Disco.java (Modelo Datos)
+│       ├── PerfilGustos.java (Modelo Datos)
+│       ├── Database.java (Gestor de datos/Persistencia)
+│       └── agentes
+│           ├── AgenteAnalizador.java (Agente 1)
+│           ├── AgenteBuscador.java (Agente 2)
+│           └── AgenteRecomendador.java (Agente 3)
+│
+└── compartido (Clases reutilizables por ambos proyectos)
+    └── MensajeSocket.java
+```
 
 ---
 
-## 4. Estructura de Datos Propuesta (Java)
+## 5. Plan de Desarrollo por Etapas (Roadmap Incremental)
 
-*   `Disco.java`: Representa un álbum físico (ID, Título, Artista, Año, Género, Formato [CD/Vinilo]).
-*   `PerfilUsuario.java`: Almacena las preferencias analizadas por el Agente 1 (mapa de afinidad por género).
-*   `MensajeSocket.java`: Clase encargada de estructurar los envíos de red.
+Para evitar construir toda la lógica de golpe, se propone un enfoque incremental de 6 etapas ordenadas de menor a mayor complejidad tecnológica.
+
+### Etapa 1: Estructuras Base y Comunicación Socket Simple
+*   **Objetivo:** Establecer la infraestructura de red básica.
+*   **Tareas:**
+    1.  Crear las clases de datos básicas compartidas (`Disco.java`, `MensajeSocket.java`).
+    2.  Implementar un servidor de sockets básico que escuche en un puerto y un cliente básico que se conecte y envíe un mensaje de texto plano.
+    3.  Confirmar que la comunicación bidireccional básica funciona.
+
+### Etapa 2: Serialización JSON y Controlador del Servidor
+*   **Objetivo:** Lograr el envío e interpretación de datos estructurados.
+*   **Tareas:**
+    1.  Integrar una librería JSON (como Gson o Jackson) en ambos lados.
+    2.  Modificar la comunicación por sockets para enviar y recibir objetos `MensajeSocket` en formato JSON.
+    3.  Estructurar el `ServerController` en el servidor para "enrutar" peticiones basándose en el campo `accion` del JSON recibido.
+
+### Etapa 3: Persistencia y Flujo de Registro (Modelo y Vista Básicos)
+*   **Objetivo:** Permitir al usuario registrar discos reales y guardarlos en el servidor.
+*   **Tareas:**
+    1.  Crear una base de datos simulada en formato JSON/texto en el servidor (`Database.java`).
+    2.  Implementar una vista preliminar en el cliente (consola o interfaz visual sencilla) para ingresar datos de un disco.
+    3.  Conectar el flujo completo: el usuario introduce un vinilo/CD -> el cliente envía la petición -> el servidor la procesa, la guarda en disco y retorna un mensaje de éxito.
+
+### Etapa 4: Implementación del Agente 1 (Analizador) y Agente 2 (Buscador)
+*   **Objetivo:** Agregar las dos primeras capacidades de inteligencia artificial y lógica en el servidor.
+*   **Tareas:**
+    1.  Desarrollar el `AgenteAnalizador`: cada vez que se registre un disco, recalcula el perfil de gustos (porcentajes de géneros favoritos).
+    2.  Desarrollar el `AgenteBuscador`: buscar discos utilizando coincidencia aproximada (algoritmo Levenshtein o coincidencia difusa) para tolerar errores ortográficos en la consulta.
+    3.  Añadir el motor de búsqueda en la interfaz del cliente.
+
+### Etapa 5: Implementación del Agente 3 (Recomendador)
+*   **Objetivo:** Culminar la lógica de IA con el motor de recomendaciones personalizado.
+*   **Tareas:**
+    1.  Desarrollar el `AgenteRecomendador`: utiliza el perfil de gustos (del Agente 1) y los registros de búsquedas (del Agente 2) para evaluar y ordenar las recomendaciones utilizando una heurística de similitud.
+    2.  Diseñar la sección de recomendaciones en la vista del cliente.
+    3.  Probar localmente todo el flujo de agentes de forma cooperativa.
+
+### Etapa 6: Despliegue en Red Real y Pulido
+*   **Objetivo:** Validar la conexión entre dos computadoras físicas distintas en la misma red local.
+*   **Tareas:**
+    1.  Configurar las direcciones IP correctas del servidor en el cliente (considerar usar hostname o archivo de configuración en lugar de IP fija para mayor robustez).
+    2.  Asegurar excepciones para fallos de red en el cliente (reconexiones o alertas si el servidor se apaga).
+    3.  Pulir la interfaz gráfica para una presentación estética premium.
+
+---
+
+## 6. Observaciones y Mejoras a Considerar
+
+### 6.1 Paquete `compartido` en proyectos separados
+Si el cliente y el servidor se estructuran como proyectos Maven/Gradle independientes, el paquete `compartido` (que contiene `MensajeSocket.java` y otras clases reutilizables) debe empaquetarse como un módulo o JAR independiente e incluirse como dependencia en ambos proyectos. Esto evita duplicar clases y mantiene la consistencia del protocolo.
+
+### 6.2 Agente 3 sin acceso directo a la BD
+En el diagrama de arquitectura, el `AgenteRecomendador` solo se comunica con el Agente 1 y el Agente 2, sin acceso directo a la BD. Esto es correcto si únicamente consume perfiles ya calculados, pero si en un futuro se requiere guardar historial de recomendaciones o métricas de uso, se deberá añadir una conexión directa del Agente 3 a la capa de persistencia.
+
+### 6.3 Protocolo de respuesta del servidor (estructura JSON)
+El protocolo actual solo define la estructura de las **peticiones** del cliente. Se debe definir también la estructura de las **respuestas** del servidor para cubrir casos de éxito y error. Ejemplo propuesto:
+
+```json
+{
+  "transaccionId": "UUID-12345",
+  "status": "OK | ERROR",
+  "mensaje": "Disco registrado correctamente.",
+  "datos": { }
+}
+```
+
+### 6.4 Manejo de concurrencia en el servidor
+El `ServerController` debe ser capaz de atender múltiples clientes simultáneamente. Se recomienda usar un `ExecutorService` (pool de hilos) para asignar un hilo por conexión entrante, evitando que una solicitud bloquee a las demás. Esta tarea debería incluirse en la **Etapa 1** o **Etapa 2** del roadmap.
+
+```java
+// Ejemplo de estructura en ServerController
+ExecutorService pool = Executors.newCachedThreadPool();
+while (true) {
+    Socket clienteSocket = serverSocket.accept();
+    pool.execute(new ManejadorCliente(clienteSocket));
+}
+```
