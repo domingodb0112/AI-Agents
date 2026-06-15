@@ -6,6 +6,10 @@ import uaemex.ia.proyecto.compartido.Disco;
 import uaemex.ia.proyecto.compartido.MensajeSocket;
 import uaemex.ia.proyecto.compartido.RespuestaSocket;
 import uaemex.ia.proyecto.servidor.model.Database;
+import uaemex.ia.proyecto.servidor.model.PerfilGustos;
+import uaemex.ia.proyecto.servidor.model.agentes.AgenteAnalizador;
+import uaemex.ia.proyecto.servidor.model.agentes.AgenteBuscador;
+import uaemex.ia.proyecto.servidor.model.agentes.AgenteRecomendador;
 
 import java.io.*;
 import java.net.Socket;
@@ -15,6 +19,9 @@ public class ManejadorCliente implements Runnable {
 
     private final Socket socket;
     private final Gson gson = new Gson();
+    private final AgenteAnalizador agenteAnalizador = new AgenteAnalizador();
+    private final AgenteBuscador agenteBuscador = new AgenteBuscador();
+    private final AgenteRecomendador agenteRecomendador = new AgenteRecomendador();
 
     public ManejadorCliente(Socket socket) {
         this.socket = socket;
@@ -76,6 +83,8 @@ public class ManejadorCliente implements Runnable {
             return RespuestaSocket.error(mensaje.getTransaccionId(), "Se requieren datos del disco.");
         }
         Database.getInstance().guardar(disco);
+        PerfilGustos perfil = agenteAnalizador.calcularPerfil(Database.getInstance().obtenerTodos());
+        System.out.println("[AgenteAnalizador] Perfil recalculado: " + perfil);
         return RespuestaSocket.ok(mensaje.getTransaccionId(),
                 "Disco registrado y guardado correctamente.", disco);
     }
@@ -87,14 +96,43 @@ public class ManejadorCliente implements Runnable {
     }
 
     private RespuestaSocket manejarBuscarAlbum(MensajeSocket mensaje) {
-        // Etapa 4: aqui se llamara a AgenteBuscador.buscar(...)
-        return RespuestaSocket.ok(mensaje.getTransaccionId(),
-                "Busqueda recibida (logica en Etapa 4).", null);
+        String consulta = obtenerConsultaBusqueda(mensaje.getDatos());
+        if (consulta.isEmpty()) {
+            return RespuestaSocket.error(mensaje.getTransaccionId(),
+                    "Se requiere una consulta en el titulo, artista o genero del disco.");
+        }
+
+        List<Disco> resultados = agenteBuscador.buscar(consulta, Database.getInstance().obtenerTodos());
+        String mensajeRespuesta = resultados.isEmpty()
+                ? "No se encontraron discos para: " + consulta
+                : resultados.size() + " resultado(s) encontrado(s) para: " + consulta;
+        return RespuestaSocket.okLista(mensaje.getTransaccionId(), mensajeRespuesta, resultados);
     }
 
     private RespuestaSocket manejarObtenerRecomendaciones(MensajeSocket mensaje) {
-        // Etapa 5: aqui se llamara a AgenteRecomendador.recomendar(...)
-        return RespuestaSocket.ok(mensaje.getTransaccionId(),
-                "Recomendaciones recibidas (logica en Etapa 5).", null);
+        List<Disco> coleccion = Database.getInstance().obtenerTodos();
+        PerfilGustos perfil = agenteAnalizador.calcularPerfil(coleccion);
+        List<Disco> recomendaciones = agenteRecomendador.recomendar(perfil, coleccion);
+        String mensajeRespuesta = recomendaciones.isEmpty()
+                ? "No hay recomendaciones nuevas disponibles."
+                : recomendaciones.size() + " recomendacion(es) generada(s) segun tu perfil: "
+                        + perfil.getGeneroFavorito();
+        return RespuestaSocket.okLista(mensaje.getTransaccionId(), mensajeRespuesta, recomendaciones);
+    }
+
+    private String obtenerConsultaBusqueda(Disco disco) {
+        if (disco == null) {
+            return "";
+        }
+        if (disco.getTitulo() != null && !disco.getTitulo().trim().isEmpty()) {
+            return disco.getTitulo().trim();
+        }
+        if (disco.getArtista() != null && !disco.getArtista().trim().isEmpty()) {
+            return disco.getArtista().trim();
+        }
+        if (disco.getGenero() != null && !disco.getGenero().trim().isEmpty()) {
+            return disco.getGenero().trim();
+        }
+        return "";
     }
 }

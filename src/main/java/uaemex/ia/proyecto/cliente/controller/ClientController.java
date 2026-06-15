@@ -5,9 +5,14 @@ import uaemex.ia.proyecto.compartido.MensajeSocket;
 import uaemex.ia.proyecto.compartido.RespuestaSocket;
 
 import java.io.*;
+import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 
 public class ClientController {
+
+    private static final int CONNECT_TIMEOUT_MS = 5000;
+    private static final int READ_TIMEOUT_MS = 7000;
 
     private final String host;
     private final int puerto;
@@ -23,26 +28,59 @@ public class ClientController {
     }
 
     public void conectar() throws IOException {
-        socket = new Socket(host, puerto);
-        salida = new PrintWriter(socket.getOutputStream(), true);
+        desconectar();
+        Socket nuevoSocket = new Socket();
+        nuevoSocket.connect(new InetSocketAddress(host, puerto), CONNECT_TIMEOUT_MS);
+        nuevoSocket.setSoTimeout(READ_TIMEOUT_MS);
+        socket = nuevoSocket;
+        salida = new PrintWriter(new OutputStreamWriter(socket.getOutputStream()), true);
         entrada = new BufferedReader(new InputStreamReader(socket.getInputStream()));
         System.out.println("[Cliente] Conectado a " + host + ":" + puerto);
     }
 
     public RespuestaSocket enviarMensaje(MensajeSocket mensaje) throws IOException {
+        if (!estaConectado()) {
+            throw new IOException("No hay conexion activa con el servidor.");
+        }
+
         String json = gson.toJson(mensaje);
         System.out.println("[Cliente] Enviando: " + json);
         salida.println(json);
+        if (salida.checkError()) {
+            desconectar();
+            throw new IOException("No se pudo enviar el mensaje al servidor.");
+        }
 
-        String jsonRespuesta = entrada.readLine();
+        String jsonRespuesta;
+        try {
+            jsonRespuesta = entrada.readLine();
+        } catch (SocketTimeoutException e) {
+            desconectar();
+            throw new SocketTimeoutException("El servidor no respondio a tiempo.");
+        }
+
+        if (jsonRespuesta == null) {
+            desconectar();
+            throw new IOException("El servidor cerro la conexion.");
+        }
         System.out.println("[Cliente] Respuesta: " + jsonRespuesta);
         return gson.fromJson(jsonRespuesta, RespuestaSocket.class);
     }
 
-    public void desconectar() throws IOException {
+    public boolean estaConectado() {
+        return socket != null && socket.isConnected() && !socket.isClosed();
+    }
+
+    public void desconectar() {
         if (socket != null && !socket.isClosed()) {
-            socket.close();
-            System.out.println("[Cliente] Desconectado.");
+            try {
+                socket.close();
+                System.out.println("[Cliente] Desconectado.");
+            } catch (IOException ignored) {
+            }
         }
+        socket = null;
+        salida = null;
+        entrada = null;
     }
 }
